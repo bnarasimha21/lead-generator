@@ -29,13 +29,18 @@ def _field_to_text(value):
     return str(value)
 
 
-def _first_balanced_object(text):
-    """Return the first balanced {...} substring, honouring JSON strings, or None."""
-    start = text.find("{")
+EXPECTED_KEYS = ("user", "company", "query", "action")
+
+
+def _balanced_objects(text):
+    """Yield every balanced top-level {...} substring in order, honouring JSON strings."""
+    pos = 0
+    start = text.find("{", pos)
     while start != -1:
         depth = 0
         in_str = False
         escaped = False
+        end = None
         for i in range(start, len(text)):
             ch = text[i]
             if in_str:
@@ -52,31 +57,35 @@ def _first_balanced_object(text):
             elif ch == "}":
                 depth -= 1
                 if depth == 0:
-                    return text[start:i + 1]
-        start = text.find("{", start + 1)
-    return None
+                    end = i
+                    break
+        if end is None:
+            # Unbalanced from here: try the next opening brace
+            start = text.find("{", start + 1)
+        else:
+            yield text[start:end + 1]
+            start = text.find("{", end + 1)
+
+
+def _is_extraction(parsed):
+    return isinstance(parsed, dict) and any(k in parsed for k in EXPECTED_KEYS)
 
 
 def _parse_json_object(content):
-    """Parse a JSON object out of an LLM reply; None if there is none."""
+    """Parse the first JSON object in an LLM reply that has at least one
+    expected key; None if there is none."""
     try:
         parsed = json.loads(content)
-        return parsed if isinstance(parsed, dict) else None
+        if _is_extraction(parsed):
+            return parsed
     except json.JSONDecodeError:
         pass
-    candidates = []
-    match = re.search(r'\{.*\}', content, re.DOTALL)
-    if match:
-        candidates.append(match.group(0))
-    balanced = _first_balanced_object(content)
-    if balanced:
-        candidates.append(balanced)
-    for cand in candidates:
+    for cand in _balanced_objects(content):
         try:
             parsed = json.loads(cand)
         except json.JSONDecodeError:
             continue
-        if isinstance(parsed, dict):
+        if _is_extraction(parsed):
             return parsed
     return None
 
@@ -136,7 +145,7 @@ async def upload_audio(request: Request, file: UploadFile = File(...)):
         parsed = _parse_json_object(content)
         if parsed is None:
             extracted = {"user": "Extraction failed", "company": "",
-                         "query": "The model reply did not contain a JSON object", "action": ""}
+                         "query": "The model reply did not contain a JSON object with the expected fields", "action": ""}
         else:
             extracted = {k: _field_to_text(parsed.get(k)) for k in extracted}
     except Exception as e:
