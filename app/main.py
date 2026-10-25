@@ -18,6 +18,69 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), na
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
+def _field_to_text(value):
+    """Render a JSON value for display: null -> "", lists joined, others str()."""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return ", ".join(_field_to_text(v) for v in value if v is not None)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _first_balanced_object(text):
+    """Return the first balanced {...} substring, honouring JSON strings, or None."""
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_str = False
+        escaped = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_str:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_str = False
+            elif ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+        start = text.find("{", start + 1)
+    return None
+
+
+def _parse_json_object(content):
+    """Parse a JSON object out of an LLM reply; None if there is none."""
+    try:
+        parsed = json.loads(content)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+    candidates = []
+    match = re.search(r'\{.*\}', content, re.DOTALL)
+    if match:
+        candidates.append(match.group(0))
+    balanced = _first_balanced_object(content)
+    if balanced:
+        candidates.append(balanced)
+    for cand in candidates:
+        try:
+            parsed = json.loads(cand)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     return templates.TemplateResponse(request, "index.html")
@@ -70,14 +133,12 @@ async def upload_audio(request: Request, file: UploadFile = File(...)):
             messages=[{"role": "user", "content": extraction_prompt}]
         )
         content = response.choices[0].message.content or ""
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError:
-            # Model wrapped the JSON in prose or a code fence: take the outermost {...}
-            match = re.search(r'\{.*\}', content, re.DOTALL)
-            parsed = json.loads(match.group(0)) if match else None
-        if isinstance(parsed, dict):
-            extracted = {k: str(parsed.get(k, "")) for k in extracted}
+        parsed = _parse_json_object(content)
+        if parsed is None:
+            extracted = {"user": "Extraction failed", "company": "",
+                         "query": "The model reply did not contain a JSON object", "action": ""}
+        else:
+            extracted = {k: _field_to_text(parsed.get(k)) for k in extracted}
     except Exception as e:
         extracted = {"user": "Extraction failed", "company": "", "query": str(e), "action": ""}
     return templates.TemplateResponse(request, "index.html", {
