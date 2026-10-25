@@ -1,7 +1,5 @@
-fastapi
+fastapi>=0.108
 uvicorn
 python-multipart
 jinja2
-boto3
-pymongo
 openai 

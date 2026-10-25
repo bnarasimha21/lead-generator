@@ -7,9 +7,9 @@ A modern FastAPI web app that lets users record their requirements via audio, tr
 ## Features
 - Record audio in-browser (no install needed)
 - Transcribe audio to text using OpenAI Whisper
-- Extract structured info (user, company, query, action) using GPT
+- Extract structured info (user, company, query, action) using `gpt-3.5-turbo`. The reply is parsed as JSON; if the model wraps it in prose, the outermost `{...}` block is used, and if that is not valid JSON the page shows "Extraction failed" with the error. Missing keys come back blank.
 - Modern, responsive UI
-- No data is stored—privacy by design
+- Nothing is kept by the app: the upload is written to a uniquely named temp file, sent to OpenAI for transcription, and deleted straight away. The audio and transcript do go to OpenAI, so this is not an on-device or private-by-design setup
 
 ---
 
@@ -56,7 +56,7 @@ Visit [http://localhost:8000](http://localhost:8000) in your browser.
 ---
 
 ## Environment Variables
-- `OPENAI_API_KEY` — Your OpenAI API key for Whisper and GPT
+- `OPENAI_API_KEY`: your OpenAI API key for Whisper and GPT. Without it, both calls fail and the page shows the error text.
 
 ---
 
