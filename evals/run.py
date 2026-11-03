@@ -31,7 +31,24 @@ from typing import List, Optional
 from app import config
 from app.providers import ExtractionResult, OpenAIExtractor, Usage
 from app.schema import EvidencedField, Lead
+from app.verify import verify_lead
 from evals.score import AggregateReport, aggregate, score_case
+
+
+def _verified_display_dict(result: ExtractionResult, transcript: str) -> dict:
+    """Run the same verification step the live app runs (app/main.py)
+    before scoring, so the eval measures what a real user would actually
+    see, not the extractor's raw, unverified output. A hallucinated
+    field with no real evidence in the transcript gets nulled here
+    exactly as it would in production, before the scorer's own
+    hallucinated_fields metric ever sees it (finding 11: previously this
+    eval never called verify_lead at all, so its numbers reflected the
+    model alone, not the pipeline users actually get).
+    """
+    if result.status != "ok":
+        return Lead.empty().to_display_dict([])
+    verified, rejected = verify_lead(result.lead, transcript)
+    return verified.to_display_dict(rejected)
 
 
 class LatencyBudgetExceeded(Exception):
@@ -102,7 +119,7 @@ async def run_fake(cases: List[dict], extractor=None, latency_budget_ms: Optiona
                 )
         else:
             result = _scripted_result(i, case)
-        actual = result.lead.to_display_dict([])
+        actual = _verified_display_dict(result, case["transcript"])
         scores.append(score_case(case["id"], case["transcript"], case["expected"], actual))
     return aggregate(scores)
 
@@ -115,7 +132,7 @@ async def run_openai(cases: List[dict]) -> AggregateReport:
     scores = []
     for case in cases:
         result = await extractor.extract(case["transcript"])
-        actual = result.lead.to_display_dict([]) if result.status == "ok" else Lead.empty().to_display_dict([])
+        actual = _verified_display_dict(result, case["transcript"])
         scores.append(score_case(case["id"], case["transcript"], case["expected"], actual))
     return aggregate(scores)
 
