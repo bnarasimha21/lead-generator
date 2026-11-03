@@ -174,13 +174,75 @@ def test_oversized_streaming_body_without_content_length_is_aborted_before_full_
     assert len(received) == 2
 
 
-def test_forwarded_allow_ips_documented_assumption_is_configured():
-    """Finding 8: uvicorn must be told which proxy to trust for
-    X-Forwarded-For, or every user behind a reverse proxy (e.g. Railway)
-    shares one rate-limit bucket via the proxy's own IP. Procfile and
-    Dockerfile both must opt in explicitly, and the assumption (this app
-    is only reachable through its platform's own proxy) must be written
-    down, not just coded.
+def test_oversized_chunked_upload_against_the_real_app_returns_413_not_400(low_limit, monkeypatch):
+    """Verification-review finding 4: a prior fix's _BodyTooLarge was a
+    plain Exception. Raised from inside FastAPI's own multipart body
+    parsing (triggered here by File(...) on /upload-audio), FastAPI's
+    routing only re-raises an exception unchanged if it is already an
+    HTTPException; a plain Exception got rewritten into a generic 400
+    "There was an error parsing the body", which Starlette's own
+    exception-handling middleware (inside the real FastAPI app) sent
+    before this middleware's own except-clause ever saw anything
+    propagate. The client got 400, never the intended 413.
+
+    This drives a REAL chunked request (no Content-Length header at all,
+    httpx uses Transfer-Encoding: chunked because the body is an async
+    generator of unknown length) through the real ASGI app
+    (app.main.app), exactly the path that hid the bug: a unit test that
+    calls the middleware directly, or synthesizes the multipart body
+    itself, would never go through FastAPI's own request.form() parsing
+    and so would never exercise this failure mode.
+    """
+    from app import config
+
+    monkeypatch.setattr(config, "MAX_UPLOAD_BYTES", 100)
+
+    boundary = "leadgenteststreamboundary"
+    payload = b"x" * 1000  # comfortably over the 100-byte cap
+    header = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="big.wav"\r\n'
+        "Content-Type: audio/wav\r\n\r\n"
+    ).encode()
+    footer = f"\r\n--{boundary}--\r\n".encode()
+
+    async def chunked_body():
+        yield header
+        # Stream the payload in small pieces so the middleware's running
+        # byte count crosses MAX_UPLOAD_BYTES mid-stream, the same way a
+        # real large upload would arrive.
+        for i in range(0, len(payload), 50):
+            yield payload[i : i + 50]
+            await asyncio.sleep(0)
+        yield footer
+
+    async def run():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.post(
+                "/upload-audio",
+                content=chunked_body(),
+                headers={"content-type": f"multipart/form-data; boundary={boundary}"},
+            )
+
+    response = asyncio.run(run())
+
+    # Confirms this really was a chunked request with no declared length,
+    # i.e. the exact code path the finding describes.
+    assert "content-length" not in {h.lower() for h in response.request.headers}
+
+    assert response.status_code == 413
+    assert response.json() == {"error": "The uploaded file is too large."}
+
+
+def test_proxy_trust_assumption_is_documented_and_not_the_leftmost_wildcard():
+    """Verification-review finding 2: --forwarded-allow-ips='*' trusts the
+    LEFT-MOST (client-controlled) entry of X-Forwarded-For, letting an
+    attacker mint an unlimited number of per-IP buckets by rotating the
+    header. Neither Procfile nor the Dockerfile's CMD may pass that flag
+    (or --proxy-headers, which only matters together with it) anymore, and
+    the right-most-entry assumption must still be written down in the
+    README, not just coded.
     """
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     with open(os.path.join(repo_root, "Procfile")) as f:
@@ -190,8 +252,91 @@ def test_forwarded_allow_ips_documented_assumption_is_configured():
     with open(os.path.join(repo_root, "README.md")) as f:
         readme = f.read()
 
-    assert "--proxy-headers" in procfile
-    assert "--forwarded-allow-ips" in procfile
-    assert "--proxy-headers" in dockerfile
-    assert "--forwarded-allow-ips" in dockerfile
-    assert "forwarded-allow-ips" in readme.lower() or "x-forwarded-for" in readme.lower()
+    assert "--proxy-headers" not in procfile
+    assert "--forwarded-allow-ips" not in procfile
+    assert "--proxy-headers" not in dockerfile
+    assert "--forwarded-allow-ips" not in dockerfile
+    assert "x-forwarded-for" in readme.lower()
+    assert "right-most" in readme.lower() or "rightmost" in readme.lower()
+
+
+def test_client_ip_uses_rightmost_x_forwarded_for_entry():
+    """_client_ip must trust the right-most X-Forwarded-For entry (the one
+    appended by the real reverse proxy connecting to this process), not
+    any entry a client could have put in front of it."""
+    from app.request_guard import _client_ip
+
+    scope = {
+        "headers": [
+            (b"x-forwarded-for", b"203.0.113.9, 198.51.100.4, 10.0.0.7"),
+        ],
+    }
+    assert _client_ip(scope) == "10.0.0.7"
+
+
+def test_client_ip_falls_back_to_scope_client_without_xff_header():
+    from app.request_guard import _client_ip
+
+    scope = {"headers": [], "client": ("192.0.2.1", 5000)}
+    assert _client_ip(scope) == "192.0.2.1"
+
+
+def test_spoofed_leftmost_xff_cannot_evade_the_per_ip_limit(low_limit):
+    """The reviewer's exact repro: an attacker rotates the left-most,
+    client-supplied X-Forwarded-For entry on every request, in front of
+    the real IP a trusted proxy appended at the end. The per-IP limit must
+    still bind to that real (right-most) IP, regardless of what the client
+    puts earlier in the chain, so the attacker cannot mint a fresh bucket
+    per request and drain DAILY_CALL_BUDGET.
+    """
+    from app import request_guard
+
+    real_proxy_appended_ip = "10.0.0.7"
+
+    async def inner_app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"{}"})
+
+    middleware = request_guard.RateLimitAndBodySizeMiddleware(inner_app)
+
+    async def run_one(spoofed_leftmost: str):
+        headers = [
+            (b"content-length", b"0"),
+            (
+                b"x-forwarded-for",
+                f"{spoofed_leftmost}, {real_proxy_appended_ip}".encode(),
+            ),
+        ]
+        scope = {
+            "type": "http",
+            "path": request_guard.UPLOAD_PATH,
+            "method": "POST",
+            "client": ("198.51.100.200", 4321),  # the proxy's own TCP peer address
+            "headers": headers,
+        }
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        await middleware(scope, receive, send)
+        return sent[0]["status"]
+
+    async def run():
+        # A different, attacker-chosen left-most IP on every single
+        # request, but the same real right-most IP every time.
+        return [await run_one(f"1.2.3.{i}") for i in range(low_limit.limit + 1)]
+
+    statuses = asyncio.run(run())
+
+    assert statuses.count(200) == low_limit.limit
+    assert statuses.count(429) == 1
+    # The limiter's bucket must be keyed on the real, right-most IP, not
+    # any of the spoofed left-most values.
+    assert len(low_limit._hits[real_proxy_appended_ip]) == low_limit.limit
+    for i in range(low_limit.limit + 1):
+        assert f"1.2.3.{i}" not in low_limit._hits

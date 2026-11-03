@@ -25,17 +25,36 @@ counts against the budget, not dodge it: since the reservation above
 happens before the size check, a 413 here already consumed a slot, exactly
 like a 400 from the route handler's own format sniff does.
 
-Finding 8: this middleware (like the route handler before it) derives the
-client IP from `scope["client"]`, i.e. the raw peer address. Behind a
-reverse proxy (e.g. Railway) that is `X-Forwarded-For`, not the real
-client IP, unless uvicorn is told to trust the proxy and rewrite
-scope["client"] from that header (see --proxy-headers / --forwarded-allow-ips
-in Procfile and the Dockerfile's CMD, and the README note on the
-assumption this relies on).
+Finding 8 / verification-review finding 2: this middleware derives the
+client IP itself, by reading the raw `X-Forwarded-For` header off the
+ASGI scope, rather than trusting `scope["client"]` or uvicorn's own
+--proxy-headers/--forwarded-allow-ips rewriting.
+
+An earlier fix ran uvicorn with --proxy-headers --forwarded-allow-ips='*',
+which rewrites scope["client"] from the LEFT-MOST entry of
+X-Forwarded-For. That entry is fully client-controlled: an attacker can
+send a fresh fake value on every request and get a brand-new per-IP
+rate-limit bucket each time, draining the whole DAILY_CALL_BUDGET while
+never once hitting their own per-IP limit. That is worse than the
+original shared-bucket bug, so Procfile and the Dockerfile's CMD no
+longer pass those flags at all.
+
+This app is only ever reachable through its platform's own reverse proxy
+(Railway's edge), never directly from the public internet (see the
+README note on the assumption this relies on). That single trusted hop
+appends its own observed peer address as the LAST entry of
+X-Forwarded-For; it does not strip whatever the client put in front of
+it. So `_client_ip` below reads the header itself and takes the
+RIGHT-MOST entry, trusting exactly the one hop that can reach this
+process at all and ignoring every entry the client could have prepended.
+If no X-Forwarded-For header is present (e.g. local dev with no proxy in
+front), it falls back to the raw ASGI peer address.
 """
 
 import json
 import time
+
+from fastapi import HTTPException
 
 from app import config
 from app import ratelimit as ratelimit_module
@@ -51,12 +70,59 @@ UPLOAD_PATH = "/upload-audio"
 # parsing time from the "received" to "audio_validated" span.
 RECEIVED_AT_SCOPE_KEY = "lead_generator_received_at"
 
+# The exact body sent by _send_json(send, 413, ...) for the Content-Length
+# based early rejection below; the streaming-body rejection (_BodyTooLarge)
+# must produce the identical {"error": ...} shape and status, whichever
+# code path catches it.
+BODY_TOO_LARGE_DETAIL = "The uploaded file is too large."
 
-class _BodyTooLarge(Exception):
-    pass
+
+class _BodyTooLarge(HTTPException):
+    """Raised from guarded_receive() when a streaming (chunked, or
+    Content-Length-lying) upload exceeds MAX_UPLOAD_BYTES.
+
+    Verification-review finding 4: this used to be a plain Exception.
+    When it was raised from inside FastAPI's own multipart body parsing
+    (fastapi/routing.py's request-body handling), FastAPI's
+    `except HTTPException: raise` / `except Exception as e: raise
+    HTTPException(400, "There was an error parsing the body") from e`
+    only re-raises an exception unchanged if it already IS an
+    HTTPException; a plain Exception instead got rewritten into a
+    generic 400 "There was an error parsing the body", and Starlette's
+    own exception-handling middleware (always present inside the FastAPI
+    app, underneath this middleware) sent that 400 response before this
+    middleware's own `except _BodyTooLarge:` below ever saw anything
+    propagate - so the client got a 400, never the intended 413.
+
+    Making _BodyTooLarge itself an HTTPException(413, ...) means
+    FastAPI's `except HTTPException: raise` branch matches first and
+    re-raises it completely unchanged, so it reaches the app's own
+    registered `@app.exception_handler(HTTPException)` (app/main.py) and
+    renders as the correct 413 with the correct {"error": ...} body,
+    without this middleware needing to intercept it at all for that
+    code path. The `except _BodyTooLarge:` handling further down is kept
+    for the other code path exercised by this module's own tests: a
+    bare ASGI app (not FastAPI) reading the body directly, where there is
+    no FastAPI/Starlette exception-handling layer to catch it first.
+    """
+
+    def __init__(self):
+        super().__init__(status_code=413, detail=BODY_TOO_LARGE_DETAIL)
 
 
 def _client_ip(scope) -> str:
+    """The IP this request is rate-limited and budgeted under: the
+    RIGHT-MOST entry of X-Forwarded-For (appended by the single trusted
+    reverse-proxy hop in front of this process), never the left-most
+    client-supplied entry. Falls back to the raw ASGI peer address when no
+    X-Forwarded-For header is present at all.
+    """
+    xff_values = [value for name, value in scope.get("headers", []) if name == b"x-forwarded-for"]
+    if xff_values:
+        raw = b", ".join(xff_values).decode("latin1")
+        parts = [part.strip() for part in raw.split(",") if part.strip()]
+        if parts:
+            return parts[-1]
     client = scope.get("client")
     return client[0] if client else "unknown"
 
@@ -119,7 +185,7 @@ class RateLimitAndBodySizeMiddleware:
             # Already reserved above: a declared-oversized request still
             # consumes its slot (finding 6), it just never reaches the
             # route handler or buffers a single byte of body.
-            await _send_json(send, 413, {"error": "The uploaded file is too large."})
+            await _send_json(send, 413, {"error": BODY_TOO_LARGE_DETAIL})
             return
 
         seen = 0
@@ -148,4 +214,4 @@ class RateLimitAndBodySizeMiddleware:
                 # The route handler already started a response through some
                 # other path; nothing sane to do but propagate.
                 raise
-            await _send_json(send, 413, {"error": "The uploaded file is too large."})
+            await _send_json(send, 413, {"error": BODY_TOO_LARGE_DETAIL})

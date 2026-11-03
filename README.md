@@ -187,19 +187,29 @@ proxy, such as Railway, every real client's TCP connection terminates at
 the proxy, so uvicorn's own view of the client IP is just the proxy's own
 address, and every user would share one rate-limit bucket.
 
-To fix this, both `Procfile` and the `Dockerfile`'s `CMD` run uvicorn with
-`--proxy-headers --forwarded-allow-ips='*'`, which tells uvicorn to trust
-`X-Forwarded-For` from whoever connects to it, and to use the left-most
-address in that header as `scope["client"]`.
+An earlier fix ran uvicorn with `--proxy-headers --forwarded-allow-ips='*'`,
+which rewrites `scope["client"]` from the **left-most** entry of
+`X-Forwarded-For`. That entry is fully client-controlled, so an attacker
+could send a fresh fake value on every request and get a brand-new
+per-IP rate-limit bucket each time, draining the whole `DAILY_CALL_BUDGET`
+without ever hitting their own per-IP limit. That is strictly worse than
+the original shared-bucket problem, so neither `Procfile` nor the
+`Dockerfile`'s `CMD` pass those flags anymore.
 
-**This assumes the app is only ever reachable through its platform's own
-trusted reverse proxy** (Railway's edge, or an equivalent you control),
-never directly from the public internet. If that assumption stops holding,
-for example if the app is ever exposed on a port the platform's proxy
-doesn't own, `--forwarded-allow-ips='*'` would let any direct client spoof
-its own `X-Forwarded-For` header and dodge the per-IP limit entirely; in
-that case it should be narrowed to the proxy's actual address range instead
-of `*`.
+Instead, `app/request_guard.py`'s `_client_ip` reads the raw
+`X-Forwarded-For` header itself and takes the **right-most** entry: the
+one most recently appended by whichever proxy actually opened the TCP
+connection to this process. **This still assumes the app is only ever
+reachable through its platform's own trusted reverse proxy** (Railway's
+edge, or an equivalent you control), never directly from the public
+internet: that single hop is the only party whose append to the header
+we trust, and we never look at anything the client itself could have
+prepended. If that assumption stops holding, for example if the app is
+ever exposed on a port the platform's proxy doesn't own, a direct client
+could put any value it likes as the last entry and this scheme no longer
+holds; in that case the middleware would need an explicit allow-list of
+trusted proxy IPs to validate the chain against, rather than trusting
+whichever hop connects last.
 
 ---
 
