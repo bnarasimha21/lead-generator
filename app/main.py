@@ -10,7 +10,7 @@ from openai import OpenAIError
 
 from app import config
 from app.providers import ProviderError, build_extractor, build_transcriber
-from app.request_guard import RECEIVED_AT_SCOPE_KEY, RateLimitAndBodySizeMiddleware
+from app.request_guard import BODY_TOO_LARGE_DETAIL, RECEIVED_AT_SCOPE_KEY, RateLimitAndBodySizeMiddleware
 from app.schema import Lead
 from app.timing import Timing
 from app.uploads import UploadTooLarge, read_upload_limited, sniff_audio_format
@@ -36,13 +36,13 @@ _extractor = None
 
 _FIXED_ERRORS = {
     400: "The uploaded file could not be read as audio.",
-    413: "The uploaded file is too large.",
+    413: BODY_TOO_LARGE_DETAIL,
     502: "The transcription or extraction service failed. Please try again.",
 }
 
 
-def _error_response(status_code: int, detail: str = None) -> JSONResponse:
-    return JSONResponse(status_code=status_code, content={"error": detail or _FIXED_ERRORS[status_code]})
+def _error_response(status_code: int, detail: str = None, headers: dict = None) -> JSONResponse:
+    return JSONResponse(status_code=status_code, content={"error": detail or _FIXED_ERRORS[status_code]}, headers=headers)
 
 
 @app.exception_handler(HTTPException)
@@ -53,7 +53,20 @@ async def _http_exception_handler(request: Request, exc: HTTPException) -> JSONR
     # get_extractor do below) would instead get FastAPI's own default
     # {"detail": ...} shape, a different contract for the same kind of
     # failure depending on which line happened to raise it.
-    return _error_response(exc.status_code, exc.detail)
+    #
+    # Verification-review finding 9: this used to call
+    # _error_response(exc.status_code, exc.detail) and nothing else,
+    # silently dropping exc.headers whenever an HTTPException set any.
+    # No current call site inside this app actually sets headers on an
+    # HTTPException it raises (the 429/Retry-After path is handled
+    # entirely inside RateLimitAndBodySizeMiddleware's own send(), never
+    # reaching this handler at all), so this was latent rather than an
+    # observed failure. Still fixed, since it is a one-line, contained
+    # change: any future HTTPException(..., headers={...}) raised from
+    # inside this app (a Depends(), a route body, etc.) now keeps its
+    # headers intact through this handler rather than silently losing
+    # them.
+    return _error_response(exc.status_code, exc.detail, headers=exc.headers)
 
 
 def get_transcriber():
