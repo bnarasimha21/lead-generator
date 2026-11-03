@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional, Protocol
 
+from openai import ContentFilterFinishReasonError, LengthFinishReasonError
 from pydantic import ValidationError
 
 from app import config
@@ -94,6 +95,33 @@ class OpenAIExtractor:
                 ],
                 response_format=Lead,
             )
+        except LengthFinishReasonError as exc:
+            # The SDK's own .parse() helper raises this instead of returning
+            # a completion with finish_reason == "length" when the model's
+            # structured-output JSON was cut off mid-stream (finding 7): the
+            # `choice.finish_reason == "length"` branch further down this
+            # method is therefore unreachable via .parse() and is kept only
+            # as a defensive fallback.
+            logger.info("extraction truncated (finish_reason=length)")
+            completion_usage = getattr(exc.completion, "usage", None)
+            usage = Usage(
+                input_tokens=getattr(completion_usage, "prompt_tokens", 0) or 0,
+                output_tokens=getattr(completion_usage, "completion_tokens", 0) or 0,
+            )
+            return ExtractionResult(status="incomplete", usage=usage, message="model output truncated")
+        except ContentFilterFinishReasonError:
+            # Likewise raised directly by .parse() rather than surfaced as a
+            # normal choice; there is no completion object to pull usage
+            # from in this case, same as a plain refusal.
+            logger.info("extraction blocked by content filter")
+            return ExtractionResult(status="refusal", message="model declined to extract")
+        except ValidationError:
+            # The SDK's own structured-output parsing failed pydantic
+            # validation against the Lead schema before returning a
+            # completion at all; this is the same outcome as the
+            # model_validate_json() fallback below, just raised earlier.
+            logger.info("extraction reply failed schema validation")
+            return ExtractionResult(status="invalid", message="model reply did not match the schema")
         except Exception as exc:
             logger.exception("extraction provider call failed")
             raise ProviderError("extraction failed") from exc
