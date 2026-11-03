@@ -1,0 +1,38 @@
+name: Eval
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_real:
+        description: "Run the real-model eval (costs a small amount)"
+        type: boolean
+        default: false
+
+jobs:
+  fake-eval:
+    runs-on: ubuntu-latest
+    env:
+      LEAD_PROVIDERS: fake
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m evals.run --providers fake
+
+  real-eval:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_real
+    runs-on: ubuntu-latest
+    env:
+      ENV: production
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m evals.run --providers openai --yes
