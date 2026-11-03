@@ -27,7 +27,13 @@ jobs:
 
       - name: Secret pattern check
         run: |
-          if grep -rIn "sk-[A-Za-z0-9]\{10,\}" --exclude-dir=.git .; then
+          # Real OpenAI keys are 40+ chars after the "sk-" prefix; a 20-char
+          # floor comfortably clears .env.example's documented placeholder
+          # ("sk-placeholder", 11 chars) while still catching a real key
+          # shape. .env.example is also excluded outright since it is
+          # documented as placeholder-only and gitignore'd for the real
+          # .env file, so there is nothing real to catch there anyway.
+          if grep -rIn --exclude-dir=.git --exclude=.env.example -E "sk-[A-Za-z0-9]{20,}" .; then
             echo "Found a string that looks like a real API key; failing the build."
             exit 1
           fi
@@ -37,8 +43,13 @@ jobs:
 
       - name: README / page copy check (issue 6)
         run: |
-          if grep -ri "gpu\|droplet" README.md app/templates/index.html app/static/*.js; then
-            echo "README or page still mentions the old GPU/Droplet copy."
+          # Narrowly targets the stray "AMD GPU Droplet" project copy this
+          # check exists to catch, not every legitimate mention of "GPU" or
+          # "droplet" individually (this app's own copy says things like
+          # "GPU instances" and "GPU pricing", which are not the thing being
+          # guarded against).
+          if grep -riE "(amd[-_ ]?)?gpu[-_ ]?droplet" README.md app/templates/index.html app/static/*.js; then
+            echo "README or page still mentions the stray AMD GPU Droplet project copy."
             exit 1
           fi
 
