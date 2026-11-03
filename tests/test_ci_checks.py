@@ -1,8 +1,16 @@
 """Adversarial-review findings 2 and 3: the CI secret-scan and
 GPU/Droplet-copy checks in .github/workflows/ci.yml must pass against this
 repo's own legitimate files, while still catching the real thing they are
-meant to catch. These tests run the exact shell commands ci.yml runs
-(subprocess, read-only grep) against the real repo tree.
+meant to catch.
+
+Verification-review finding 7: the secret-scan pattern also needed to
+catch the hyphenated real-key prefixes (sk-proj-, sk-svcacct-, sk-ant-)
+that the original alphanumeric-only character class could never match,
+and the .env.example exclude was removed since the length floor alone
+already clears that file's placeholder text.
+
+These tests run the exact shell commands ci.yml runs (subprocess,
+read-only grep) against the real repo tree.
 """
 
 import os
@@ -13,7 +21,7 @@ import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-SECRET_PATTERN = r"sk-[A-Za-z0-9]{20,}"
+SECRET_PATTERN = r"sk-[A-Za-z0-9_-]{20,}"
 GPU_DROPLET_PATTERN = r"(amd[-_ ]?)?gpu[-_ ]?droplet"
 
 
@@ -31,9 +39,14 @@ pytestmark = pytest.mark.skipif(not _grep_available(), reason="grep not availabl
 def test_secret_scan_regex_passes_on_the_repo_as_it_stands():
     """This is the literal command from ci.yml's "Secret pattern check"
     step. grep exits 1 when nothing matches; the step only fails the build
-    when grep exits 0 (something matched)."""
+    when grep exits 0 (something matched).
+
+    Verification-review finding 7: the old command also hard-excluded
+    .env.example; it no longer does, so this now scans that file too (it
+    relies on the length floor alone to clear the placeholder, exercised
+    directly by the test below)."""
     result = subprocess.run(
-        ["grep", "-rIn", "--exclude-dir=.git", "--exclude=.env.example", "-E", SECRET_PATTERN, "."],
+        ["grep", "-rIn", "--exclude-dir=.git", "-E", SECRET_PATTERN, "."],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -46,9 +59,25 @@ def test_secret_scan_regex_still_catches_a_realistic_key_shape():
     assert re.search(SECRET_PATTERN, fake_real_key)
 
 
+def test_secret_scan_regex_catches_hyphenated_real_key_prefixes():
+    """Verification-review finding 7: real OpenAI/Anthropic keys are
+    issued with a hyphenated sub-prefix (sk-proj-..., sk-svcacct-...,
+    sk-ant-...). The old alphanumeric-only character class
+    ([A-Za-z0-9]{20,}) could never match these: the hyphen right after
+    the sub-prefix breaks the run of 20+ alphanumeric characters the
+    pattern required, so a leaked "sk-proj-<40 real chars>" key sailed
+    straight through the scan untouched."""
+    for fake_real_key in (
+        "sk-proj-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4",
+        "sk-svcacct-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4",
+        "sk-ant-api03-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4",
+    ):
+        assert re.search(SECRET_PATTERN, fake_real_key), fake_real_key
+
+
 def test_secret_scan_regex_does_not_match_env_example_placeholder_even_unexcluded():
-    """Belt and suspenders: even without the --exclude flag, the tightened
-    length floor alone must not match the documented placeholder."""
+    """The tightened length floor alone, with no --exclude flag at all,
+    must not match the documented placeholder."""
     env_example_path = os.path.join(REPO_ROOT, ".env.example")
     with open(env_example_path) as f:
         content = f.read()

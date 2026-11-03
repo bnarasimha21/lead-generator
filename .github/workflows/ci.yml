@@ -30,10 +30,21 @@ jobs:
           # Real OpenAI keys are 40+ chars after the "sk-" prefix; a 20-char
           # floor comfortably clears .env.example's documented placeholder
           # ("sk-placeholder", 11 chars) while still catching a real key
-          # shape. .env.example is also excluded outright since it is
-          # documented as placeholder-only and gitignore'd for the real
-          # .env file, so there is nothing real to catch there anyway.
-          if grep -rIn --exclude-dir=.git --exclude=.env.example -E "sk-[A-Za-z0-9]{20,}" .; then
+          # shape. The key body is allowed to contain hyphens/underscores so
+          # this also catches the hyphenated real-key prefixes OpenAI/
+          # Anthropic actually issue (sk-proj-..., sk-svcacct-...,
+          # sk-ant-...), which the old alphanumeric-only pattern missed
+          # entirely: a hyphen right after the prefix broke the run of
+          # [A-Za-z0-9] characters the old pattern required, so
+          # "sk-proj-<40 chars>" never matched at all.
+          #
+          # Verification-review finding 7: the old command also hard-excluded
+          # .env.example outright. With the 20-char length floor alone
+          # already clearing that file's placeholder text, the exclude was
+          # redundant and, worse, meant a real key accidentally pasted into
+          # that file specifically would never be caught; it is removed here
+          # so every tracked file is scanned the same way.
+          if grep -rIn --exclude-dir=.git -E "sk-[A-Za-z0-9_-]{20,}" .; then
             echo "Found a string that looks like a real API key; failing the build."
             exit 1
           fi
