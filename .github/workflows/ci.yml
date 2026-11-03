@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    env:
+      LEAD_PROVIDERS: fake
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Secret pattern check
+        run: |
+          # Real OpenAI keys are 40+ chars after the "sk-" prefix; a 20-char
+          # floor comfortably clears .env.example's documented placeholder
+          # ("sk-placeholder", 11 chars) while still catching a real key
+          # shape. The key body is allowed to contain hyphens/underscores so
+          # this also catches the hyphenated real-key prefixes OpenAI/
+          # Anthropic actually issue (sk-proj-..., sk-svcacct-...,
+          # sk-ant-...), which the old alphanumeric-only pattern missed
+          # entirely: a hyphen right after the prefix broke the run of
+          # [A-Za-z0-9] characters the old pattern required, so
+          # "sk-proj-<40 chars>" never matched at all.
+          #
+          # Verification-review finding 7: the old command also hard-excluded
+          # .env.example outright. With the 20-char length floor alone
+          # already clearing that file's placeholder text, the exclude was
+          # redundant and, worse, meant a real key accidentally pasted into
+          # that file specifically would never be caught; it is removed here
+          # so every tracked file is scanned the same way.
+          if grep -rIn --exclude-dir=.git -E "sk-[A-Za-z0-9_-]{20,}" .; then
+            echo "Found a string that looks like a real API key; failing the build."
+            exit 1
+          fi
+
+      - name: Run tests
+        run: pytest -v
+
+      - name: README / page copy check (issue 6)
+        run: |
+          # Narrowly targets the stray "AMD GPU Droplet" project copy this
+          # check exists to catch, not every legitimate mention of "GPU" or
+          # "droplet" individually (this app's own copy says things like
+          # "GPU instances" and "GPU pricing", which are not the thing being
+          # guarded against).
+          if grep -riE "(amd[-_ ]?)?gpu[-_ ]?droplet" README.md app/templates/index.html app/static/*.js; then
+            echo "README or page still mentions the stray AMD GPU Droplet project copy."
+            exit 1
+          fi
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t lead-generator:ci .
+
+      - name: Start container with fake providers
+        run: |
+          docker run -d --name lead-generator-ci -p 8000:8000 \
+            -e LEAD_PROVIDERS=fake -e ENV=test lead-generator:ci
+
+      - name: Wait for health check
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:8000/health; then exit 0; fi
+            sleep 1
+          done
+          echo "container never became healthy"
+          docker logs lead-generator-ci
+          exit 1
+
+      - name: Smoke the upload flow with a fixture file
+        run: |
+          python3 -c "
+          import wave
+          with wave.open('/tmp/sample.wav', 'wb') as w:
+              w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000)
+              w.writeframes(b'\x00\x00' * 800)
+          "
+          curl -fs -F "file=@/tmp/sample.wav;type=audio/wav" http://localhost:8000/upload-audio
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f lead-generator-ci || true

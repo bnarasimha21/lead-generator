@@ -1,0 +1,377 @@
+[
+  {
+    "id": "case_01_full_info",
+    "transcript": "Hi, this is Priya Nair from Acme Robotics. We're exploring GPU instances for a computer vision workload. My email is priya at acme dot io. Can someone follow up this week? Budget is around fifty thousand dollars and it's fairly urgent.",
+    "expected": {
+      "name": {"value": "Priya Nair", "evidence": "this is Priya Nair"},
+      "company": {"value": "Acme Robotics", "evidence": "from Acme Robotics"},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": "priya@acme.io", "evidence": "priya at acme dot io"},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "GPU instances for a computer vision workload", "evidence": "exploring GPU instances for a computer vision workload"},
+      "next_step": {"value": "follow up this week", "evidence": "follow up this week"},
+      "budget_mentioned": {"value": "fifty thousand dollars", "evidence": "fifty thousand dollars"},
+      "urgency": {"value": "fairly urgent", "evidence": "fairly urgent"}
+    }
+  },
+  {
+    "id": "case_02_no_name_given",
+    "transcript": "We're from Northwind Traders, looking at storage pricing for a logistics project. No rush, just gathering quotes.",
+    "expected": {
+      "name": {"value": null, "evidence": null},
+      "company": {"value": "Northwind Traders", "evidence": "from Northwind Traders"},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "storage pricing for a logistics project", "evidence": "storage pricing for a logistics project"},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": "no rush", "evidence": "No rush"}
+    }
+  },
+  {
+    "id": "case_03_two_people_mentioned",
+    "transcript": "This is Tom calling on behalf of my manager Sarah Chen at Delta Freight. Sarah wants a quote for container tracking sensors, she's the one you should email.",
+    "expected": {
+      "name": {"value": "Tom", "evidence": "This is Tom"},
+      "company": {"value": "Delta Freight", "evidence": "at Delta Freight"},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "a quote for container tracking sensors", "evidence": "a quote for container tracking sensors"},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_04_nothing_useful",
+    "transcript": "Um, hi, yeah, just testing the recorder, I think it's working, okay bye.",
+    "expected": {
+      "name": {"value": null, "evidence": null},
+      "company": {"value": null, "evidence": null},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": null, "evidence": null},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_05_spoken_email_underscore",
+    "transcript": "I'm Dev, reach me at dev underscore k at mailhub dot com, we need a demo of the dashboard product.",
+    "expected": {
+      "name": {"value": "Dev", "evidence": "I'm Dev"},
+      "company": {"value": null, "evidence": null},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": "dev_k@mailhub.com", "evidence": "dev underscore k at mailhub dot com"},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "a demo of the dashboard product", "evidence": "a demo of the dashboard product"},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_06_phone_number_spoken",
+    "transcript": "This is Lin from BrightPath Clinics, my number is 555-204-7781, call me about the scheduling software.",
+    "expected": {
+      "name": {"value": "Lin", "evidence": "This is Lin"},
+      "company": {"value": "BrightPath Clinics", "evidence": "from BrightPath Clinics"},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": "555-204-7781", "evidence": "555-204-7781"},
+      "interest": {"value": "the scheduling software", "evidence": "the scheduling software"},
+      "next_step": {"value": "call me", "evidence": "call me"},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_07_role_mentioned",
+    "transcript": "I'm the VP of Engineering at Vertex Labs, we're evaluating your API for our platform team, send me pricing by Friday.",
+    "expected": {
+      "name": {"value": null, "evidence": null},
+      "company": {"value": "Vertex Labs", "evidence": "at Vertex Labs"},
+      "role": {"value": "VP of Engineering", "evidence": "VP of Engineering"},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "your API for our platform team", "evidence": "your API for our platform team"},
+      "next_step": {"value": "send me pricing by Friday", "evidence": "send me pricing by Friday"},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_08_budget_as_words",
+    "transcript": "Hi, this is Ana from Solace Media, budget for this is roughly twenty five hundred dollars a month, we need something by next quarter.",
+    "expected": {
+      "name": {"value": "Ana", "evidence": "this is Ana"},
+      "company": {"value": "Solace Media", "evidence": "from Solace Media"},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": null, "evidence": null},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": "roughly twenty five hundred dollars a month", "evidence": "roughly twenty five hundred dollars a month"},
+      "urgency": {"value": "next quarter", "evidence": "next quarter"}
+    }
+  },
+  {
+    "id": "case_09_no_company",
+    "transcript": "My name is Carlos, I'm a freelance designer, interested in your image generation tool for client mockups.",
+    "expected": {
+      "name": {"value": "Carlos", "evidence": "My name is Carlos"},
+      "company": {"value": null, "evidence": null},
+      "role": {"value": "freelance designer", "evidence": "freelance designer"},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "your image generation tool for client mockups", "evidence": "your image generation tool for client mockups"},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_10_urgent_outage",
+    "transcript": "This is Meera at Orbit Finance, our current vendor is down and we need a replacement immediately, this is extremely urgent.",
+    "expected": {
+      "name": {"value": "Meera", "evidence": "This is Meera"},
+      "company": {"value": "Orbit Finance", "evidence": "at Orbit Finance"},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "a replacement", "evidence": "we need a replacement"},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": "extremely urgent", "evidence": "extremely urgent"}
+    }
+  },
+  {
+    "id": "case_11_spoken_email_dash",
+    "transcript": "I'm Fatima from Coral Health, email me at fatima dash h at coralhealth dot org about the patient portal integration.",
+    "expected": {
+      "name": {"value": "Fatima", "evidence": "I'm Fatima"},
+      "company": {"value": "Coral Health", "evidence": "from Coral Health"},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": "fatima-h@coralhealth.org", "evidence": "fatima dash h at coralhealth dot org"},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "the patient portal integration", "evidence": "the patient portal integration"},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_12_just_company_no_interest",
+    "transcript": "Calling from Harper Logistics, not sure who to talk to, we'll call back later.",
+    "expected": {
+      "name": {"value": null, "evidence": null},
+      "company": {"value": "Harper Logistics", "evidence": "from Harper Logistics"},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": null, "evidence": null},
+      "next_step": {"value": "we'll call back later", "evidence": "we'll call back later"},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_13_mumbled_unclear",
+    "transcript": "[inaudible] something about... [inaudible] maybe next time.",
+    "expected": {
+      "name": {"value": null, "evidence": null},
+      "company": {"value": null, "evidence": null},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": null, "evidence": null},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_14_multiple_fields_dense",
+    "transcript": "Hey, James Walsh here, I'm the ops lead at Quilt Systems, we're after your monitoring suite, my email is james at quiltsystems dot co, budget is capped at ten thousand, and we need this live within two weeks.",
+    "expected": {
+      "name": {"value": "James Walsh", "evidence": "James Walsh here"},
+      "company": {"value": "Quilt Systems", "evidence": "at Quilt Systems"},
+      "role": {"value": "ops lead", "evidence": "ops lead"},
+      "email": {"value": "james@quiltsystems.co", "evidence": "james at quiltsystems dot co"},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "your monitoring suite", "evidence": "your monitoring suite"},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": "capped at ten thousand", "evidence": "capped at ten thousand"},
+      "urgency": {"value": "live within two weeks", "evidence": "live within two weeks"}
+    }
+  },
+  {
+    "id": "case_15_phone_with_parens",
+    "transcript": "This is Grace, you can reach me at (415) 555 0199, interested in the annual plan.",
+    "expected": {
+      "name": {"value": "Grace", "evidence": "This is Grace"},
+      "company": {"value": null, "evidence": null},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": "(415) 555 0199", "evidence": "(415) 555 0199"},
+      "interest": {"value": "the annual plan", "evidence": "the annual plan"},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_16_competitor_mentioned",
+    "transcript": "We're currently using a competitor's tool but it's too slow, I'm Oskar from Ferro Metals, want to switch soon.",
+    "expected": {
+      "name": {"value": "Oskar", "evidence": "I'm Oskar"},
+      "company": {"value": "Ferro Metals", "evidence": "from Ferro Metals"},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": null, "evidence": null},
+      "next_step": {"value": "switch soon", "evidence": "want to switch soon"},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": "soon", "evidence": "soon"}
+    }
+  },
+  {
+    "id": "case_17_just_greeting",
+    "transcript": "Hello? Hello, is this thing on? Okay never mind.",
+    "expected": {
+      "name": {"value": null, "evidence": null},
+      "company": {"value": null, "evidence": null},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": null, "evidence": null},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_18_spoken_email_plus",
+    "transcript": "You can email leads plus demo at trycove dot ai, this is on behalf of Cove Analytics, we want a trial.",
+    "expected": {
+      "name": {"value": null, "evidence": null},
+      "company": {"value": "Cove Analytics", "evidence": "Cove Analytics"},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": "leads+demo@trycove.ai", "evidence": "leads plus demo at trycove dot ai"},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "a trial", "evidence": "we want a trial"},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_19_vague_interest_only",
+    "transcript": "Just curious what you folks do, no company to mention, maybe later.",
+    "expected": {
+      "name": {"value": null, "evidence": null},
+      "company": {"value": null, "evidence": null},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "what you folks do", "evidence": "curious what you folks do"},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_20_full_info_second_style",
+    "transcript": "Hi there, Wes Bannon, director of IT at Palmetto Schools. We need classroom tablets priced out, email wes at palmetto dot edu, aiming to decide within thirty days, budget around eighty thousand.",
+    "expected": {
+      "name": {"value": "Wes Bannon", "evidence": "Wes Bannon"},
+      "company": {"value": "Palmetto Schools", "evidence": "at Palmetto Schools"},
+      "role": {"value": "director of IT", "evidence": "director of IT"},
+      "email": {"value": "wes@palmetto.edu", "evidence": "wes at palmetto dot edu"},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "classroom tablets priced out", "evidence": "classroom tablets priced out"},
+      "next_step": {"value": "decide within thirty days", "evidence": "decide within thirty days"},
+      "budget_mentioned": {"value": "around eighty thousand", "evidence": "around eighty thousand"},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_21_no_contact_info_at_all",
+    "transcript": "We love the product demo we saw, representing Birchwood Furniture, would like a follow-up call next Tuesday.",
+    "expected": {
+      "name": {"value": null, "evidence": null},
+      "company": {"value": "Birchwood Furniture", "evidence": "Birchwood Furniture"},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": null, "evidence": null},
+      "next_step": {"value": "a follow-up call next Tuesday", "evidence": "a follow-up call next Tuesday"},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_22_background_noise_partial",
+    "transcript": "Sorry, bad connection, this is... Ray... something, from a marketing firm, we need, uh, social media scheduling.",
+    "expected": {
+      "name": {"value": "Ray", "evidence": "this is... Ray"},
+      "company": {"value": null, "evidence": null},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "social media scheduling", "evidence": "social media scheduling"},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_23_spoken_email_dot_only",
+    "transcript": "Email is sam dot rivera at outbound dot net, I'm with Lagoon Studios, interested in render farm credits.",
+    "expected": {
+      "name": {"value": null, "evidence": null},
+      "company": {"value": "Lagoon Studios", "evidence": "Lagoon Studios"},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": "sam.rivera@outbound.net", "evidence": "sam dot rivera at outbound dot net"},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": "render farm credits", "evidence": "render farm credits"},
+      "next_step": {"value": null, "evidence": null},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  },
+  {
+    "id": "case_24_next_step_and_urgency_only",
+    "transcript": "Can't talk long, please call back today, it's urgent, that's all I can say right now.",
+    "expected": {
+      "name": {"value": null, "evidence": null},
+      "company": {"value": null, "evidence": null},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": null, "evidence": null},
+      "next_step": {"value": "call back today", "evidence": "please call back today"},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": "urgent", "evidence": "it's urgent"}
+    }
+  },
+  {
+    "id": "case_25_long_rambling_low_signal",
+    "transcript": "So anyway I was thinking about the weekend and then I remembered I should probably call about something, I forget what, maybe pricing, I'll call back.",
+    "expected": {
+      "name": {"value": null, "evidence": null},
+      "company": {"value": null, "evidence": null},
+      "role": {"value": null, "evidence": null},
+      "email": {"value": null, "evidence": null},
+      "phone": {"value": null, "evidence": null},
+      "interest": {"value": null, "evidence": null},
+      "next_step": {"value": "I'll call back", "evidence": "I'll call back"},
+      "budget_mentioned": {"value": null, "evidence": null},
+      "urgency": {"value": null, "evidence": null}
+    }
+  }
+]

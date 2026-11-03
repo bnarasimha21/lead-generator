@@ -1,0 +1,179 @@
+"""The provider seam (issue 1): Transcriber and Extractor protocols, OpenAI
+implementations behind the async client (so a slow call never blocks the
+event loop), and a factory picking providers from config.
+
+Fake implementations (used by LEAD_PROVIDERS=fake, and by tests) live in
+app/providers_fake.py, not tests/: the Docker image only COPYs app/, and
+LEAD_PROVIDERS=fake is a legitimate runtime mode outside tests (see the
+container smoke test), so this module must never import from the test tree.
+tests/fakes.py re-exports from app/providers_fake.py for backward
+compatibility with existing test imports.
+"""
+
+import logging
+from dataclasses import dataclass, field
+from typing import Optional, Protocol
+
+from openai import ContentFilterFinishReasonError, LengthFinishReasonError
+from pydantic import ValidationError
+
+from app import config
+from app.schema import Lead
+from app.security import SYSTEM_PROMPT, build_user_message
+
+logger = logging.getLogger("lead_generator.providers")
+
+
+@dataclass
+class TranscriptionResult:
+    text: str
+    audio_seconds: Optional[float] = None
+    language: Optional[str] = None
+
+
+@dataclass
+class Usage:
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+@dataclass
+class ExtractionResult:
+    status: str  # "ok" | "refusal" | "incomplete" | "invalid"
+    lead: Lead = field(default_factory=Lead.empty)
+    usage: Usage = field(default_factory=Usage)
+    message: Optional[str] = None
+
+
+class ProviderError(Exception):
+    """Raised when a provider call fails outside the handled, defined
+    outcomes (refusal / incomplete / invalid); the handler maps this to a
+    502 with a fixed message.
+    """
+
+
+class Transcriber(Protocol):
+    async def transcribe(self, audio_bytes: bytes, filename: str, content_type: str) -> TranscriptionResult: ...
+
+
+class Extractor(Protocol):
+    async def extract(self, transcript: str) -> ExtractionResult: ...
+
+
+class OpenAITranscriber:
+    def __init__(self, client, model: str = None):
+        self._client = client
+        self._model = model or config.TRANSCRIBE_MODEL
+
+    async def transcribe(self, audio_bytes: bytes, filename: str, content_type: str) -> TranscriptionResult:
+        try:
+            response = await self._client.audio.transcriptions.create(
+                model=self._model,
+                file=(filename, audio_bytes, content_type),
+            )
+        except Exception as exc:  # pragma: no cover - exercised via ProviderError path
+            logger.exception("transcription provider call failed")
+            raise ProviderError("transcription failed") from exc
+        duration = getattr(response, "duration", None)
+        language = getattr(response, "language", None)
+        return TranscriptionResult(text=response.text or "", audio_seconds=duration, language=language)
+
+
+class OpenAIExtractor:
+    def __init__(self, client, model: str = None):
+        self._client = client
+        self._model = model or config.EXTRACT_MODEL
+
+    async def extract(self, transcript: str) -> ExtractionResult:
+        user_message = build_user_message(transcript)
+        try:
+            # With the pinned openai==1.57.4, structured-output .parse() only
+            # exists at client.beta.chat.completions.parse, not
+            # client.chat.completions.parse (verified against the installed
+            # SDK's actual attributes, not assumed). Calling the non-beta
+            # path raises AttributeError on every real call, which the broad
+            # except below used to swallow into a generic ProviderError/502.
+            completion = await self._client.beta.chat.completions.parse(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                response_format=Lead,
+            )
+        except LengthFinishReasonError as exc:
+            # The SDK's own .parse() helper raises this instead of returning
+            # a completion with finish_reason == "length" when the model's
+            # structured-output JSON was cut off mid-stream (finding 7): the
+            # `choice.finish_reason == "length"` branch further down this
+            # method is therefore unreachable via .parse() and is kept only
+            # as a defensive fallback.
+            logger.info("extraction truncated (finish_reason=length)")
+            completion_usage = getattr(exc.completion, "usage", None)
+            usage = Usage(
+                input_tokens=getattr(completion_usage, "prompt_tokens", 0) or 0,
+                output_tokens=getattr(completion_usage, "completion_tokens", 0) or 0,
+            )
+            return ExtractionResult(status="incomplete", usage=usage, message="model output truncated")
+        except ContentFilterFinishReasonError:
+            # Likewise raised directly by .parse() rather than surfaced as a
+            # normal choice; there is no completion object to pull usage
+            # from in this case, same as a plain refusal.
+            logger.info("extraction blocked by content filter")
+            return ExtractionResult(status="refusal", message="model declined to extract")
+        except ValidationError:
+            # The SDK's own structured-output parsing failed pydantic
+            # validation against the Lead schema before returning a
+            # completion at all; this is the same outcome as the
+            # model_validate_json() fallback below, just raised earlier.
+            logger.info("extraction reply failed schema validation")
+            return ExtractionResult(status="invalid", message="model reply did not match the schema")
+        except Exception as exc:
+            logger.exception("extraction provider call failed")
+            raise ProviderError("extraction failed") from exc
+
+        choice = completion.choices[0]
+        usage = Usage(
+            input_tokens=getattr(completion.usage, "prompt_tokens", 0) or 0,
+            output_tokens=getattr(completion.usage, "completion_tokens", 0) or 0,
+        )
+
+        if getattr(choice.message, "refusal", None):
+            logger.info("extraction refused by model")
+            return ExtractionResult(status="refusal", usage=usage, message="model declined to extract")
+
+        if choice.finish_reason == "length":
+            logger.info("extraction truncated (finish_reason=length)")
+            return ExtractionResult(status="incomplete", usage=usage, message="model output truncated")
+
+        parsed = getattr(choice.message, "parsed", None)
+        if parsed is None:
+            try:
+                parsed = Lead.model_validate_json(choice.message.content or "")
+            except (ValidationError, ValueError, TypeError):
+                logger.info("extraction reply failed schema validation")
+                return ExtractionResult(status="invalid", usage=usage, message="model reply did not match the schema")
+
+        return ExtractionResult(status="ok", lead=parsed, usage=usage)
+
+
+def build_transcriber() -> Transcriber:
+    if config.LEAD_PROVIDERS == "fake":
+        from app.providers_fake import FakeTranscriber
+
+        return FakeTranscriber()
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+    return OpenAITranscriber(client)
+
+
+def build_extractor() -> Extractor:
+    if config.LEAD_PROVIDERS == "fake":
+        from app.providers_fake import FakeExtractor
+
+        return FakeExtractor()
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+    return OpenAIExtractor(client)
