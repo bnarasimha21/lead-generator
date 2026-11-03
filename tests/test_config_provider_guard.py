@@ -16,7 +16,14 @@ import sys
 
 
 def _import_config(env_overrides: dict) -> subprocess.CompletedProcess:
+    # pytest's own process already has ENV=test (set by conftest.py's
+    # os.environ.setdefault) by the time any test runs, so simply omitting
+    # "ENV" from env_overrides does NOT produce a subprocess with ENV
+    # unset: it would inherit ENV=test from os.environ below. A case that
+    # wants to test truly-unset ENV must pass env_overrides={"ENV": None},
+    # which this helper turns into an actual deletion from the merged env.
     env = {**os.environ, **env_overrides}
+    env = {key: value for key, value in env.items() if value is not None}
     return subprocess.run(
         [sys.executable, "-c", "import app.config"],
         cwd=os.path.join(os.path.dirname(__file__), ".."),
@@ -27,10 +34,23 @@ def _import_config(env_overrides: dict) -> subprocess.CompletedProcess:
 
 
 def test_fake_providers_refused_when_env_unset():
-    env = {"LEAD_PROVIDERS": "fake"}
-    env.pop("ENV", None)
-    result = _import_config(env)
-    # ENV unset defaults to "development", which is explicitly safe.
+    """Verification-review finding 5: ENV left unset entirely must fail
+    closed, not silently default to the safe "development" value. Without
+    this, a real deploy that simply forgot to set ENV, with
+    LEAD_PROVIDERS=fake left over from local testing, would silently serve
+    canned fake data in what is actually production.
+    """
+    result = _import_config({"LEAD_PROVIDERS": "fake", "ENV": None})
+    assert result.returncode != 0
+    assert "LEAD_PROVIDERS=fake is only allowed" in result.stderr
+    assert "ENV=None" in result.stderr
+
+
+def test_fake_providers_allowed_when_env_explicitly_development():
+    """Control case for the finding-5 fix: explicitly setting
+    ENV=development (not relying on any default) must still allow fakes,
+    distinguishing "explicitly set to a safe value" from "unset"."""
+    result = _import_config({"LEAD_PROVIDERS": "fake", "ENV": "development"})
     assert result.returncode == 0, result.stderr
 
 
