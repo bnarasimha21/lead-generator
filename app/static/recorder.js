@@ -176,12 +176,15 @@ function renderResult(body) {
     container.appendChild(leadBox);
 }
 
-// CSV cells are escaped against formula injection: a cell starting with
-// =, +, -, or @ is prefixed with a tab character-safe single quote so a
-// spreadsheet never evaluates it as a formula.
+// CSV cells are escaped against formula injection (OWASP's documented
+// character set): a cell that starts with =, +, -, @, a tab (0x09), or a
+// carriage return (0x0D) is prefixed with a single quote, so a
+// spreadsheet never evaluates it as a formula. A leading tab or CR is
+// included because Excel still treats it as leading whitespace and goes
+// on to evaluate the formula that follows it.
 function escapeCsvCell(raw) {
     let text = raw === null || raw === undefined ? '' : String(raw);
-    if (/^[=+\-@]/.test(text)) {
+    if (/^[=+\-@\t\r]/.test(text)) {
         text = "'" + text;
     }
     text = text.replace(/"/g, '""');
