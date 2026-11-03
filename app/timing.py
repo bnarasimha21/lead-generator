@@ -21,8 +21,14 @@ MARK_NAMES = (
 
 
 class Timing:
-    def __init__(self):
-        self._start = time.monotonic()
+    def __init__(self, start: float = None):
+        # `start`, when given, is a time.monotonic() value captured earlier
+        # than this object's construction (e.g. by the ASGI middleware, as
+        # soon as the request arrived), so the "received" mark reflects
+        # when the request actually came in rather than when this route
+        # handler's body began running, after FastAPI has already parsed
+        # the multipart upload to build the UploadFile.
+        self._start = start if start is not None else time.monotonic()
         self.marks = OrderedDict()
 
     def mark(self, name: str) -> None:

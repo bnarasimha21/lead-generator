@@ -35,11 +35,21 @@ assumption this relies on).
 """
 
 import json
+import time
 
 from app import config
 from app import ratelimit as ratelimit_module
 
 UPLOAD_PATH = "/upload-audio"
+
+# Key stashed directly on the ASGI scope dict (shared by reference with
+# the Request object the route handler sees) so the "received" timing
+# mark can reflect when this middleware first saw the request, before
+# Starlette/FastAPI parse the multipart body to build the UploadFile.
+# Marking "received" from inside the route handler, as this app used to
+# do, happens after that parsing, so it silently excluded multipart
+# parsing time from the "received" to "audio_validated" span.
+RECEIVED_AT_SCOPE_KEY = "lead_generator_received_at"
 
 
 class _BodyTooLarge(Exception):
@@ -83,6 +93,8 @@ class RateLimitAndBodySizeMiddleware:
         if scope["type"] != "http" or scope.get("path") != self.upload_path or scope.get("method") != "POST":
             await self.app(scope, receive, send)
             return
+
+        scope[RECEIVED_AT_SCOPE_KEY] = time.monotonic()
 
         client_ip = _client_ip(scope)
 

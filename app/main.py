@@ -10,7 +10,7 @@ from openai import OpenAIError
 
 from app import config
 from app.providers import ProviderError, build_extractor, build_transcriber
-from app.request_guard import RateLimitAndBodySizeMiddleware
+from app.request_guard import RECEIVED_AT_SCOPE_KEY, RateLimitAndBodySizeMiddleware
 from app.schema import Lead
 from app.timing import Timing
 from app.uploads import UploadTooLarge, read_upload_limited, sniff_audio_format
@@ -99,7 +99,8 @@ async def upload_audio(
     transcriber=Depends(get_transcriber),
     extractor=Depends(get_extractor),
 ):
-    timing = Timing()
+    received_at = request.scope.get(RECEIVED_AT_SCOPE_KEY)
+    timing = Timing(start=received_at)
     timing.mark("received")
 
     # Rate limiting, the daily budget, and the raw body-size cap are all
