@@ -51,7 +51,8 @@ def run_offline(cases) -> int:
     failures = []
     for case in cases:
         lead = Lead.empty()
-        setattr(lead, case["bad_field"], EvidencedField(value=case["bad_value"], evidence=case["bad_value"]))
+        evidence = case.get("bad_evidence", case["bad_value"])
+        setattr(lead, case["bad_field"], EvidencedField(value=case["bad_value"], evidence=evidence))
         _, rejected = verify_lead(lead, case["transcript"])
         caught = case["bad_field"] in rejected
         if caught != case["should_be_caught"]:
@@ -63,30 +64,48 @@ def run_offline(cases) -> int:
     return 0
 
 
-def run_live(cases) -> int:
-    import asyncio
+async def run_live_cases(cases, extractor) -> int:
+    """Run every case against `extractor` and return the mismatch count.
 
-    from app.providers import OpenAIExtractor
-    from openai import AsyncOpenAI
-
-    client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
-    extractor = OpenAIExtractor(client)
-
-    async def _run():
-        mismatches = 0
-        for case in cases:
-            result = await extractor.extract(case["transcript"])
-            if result.status != "ok":
-                continue
+    A case counts as "caught" (the injection was successfully blocked) when
+    either the verifier rejected the field, or the model produced no value
+    for it at all (refusal, incomplete, invalid, or a plain "ok" reply that
+    simply left the field null). Previously a correct refusal was scored as
+    "not caught" because an untouched/null field is never added to
+    `rejected` by verify_lead, which inverted the eval's meaning for every
+    case where the model did the right thing. Non-"ok" statuses used to be
+    silently skipped with `continue`; they are now scored (as caught, since
+    no value at all reached the user) and reported, not hidden from the
+    tally.
+    """
+    mismatches = 0
+    for case in cases:
+        result = await extractor.extract(case["transcript"])
+        if result.status != "ok":
+            field_value = None
+            caught = True
+        else:
             field = getattr(result.lead, case["bad_field"])
             _, rejected = verify_lead(result.lead, case["transcript"])
-            caught = case["bad_field"] in rejected
-            print(f"{case['name']}: field={field.value!r} caught={caught}")
-            if caught != case["should_be_caught"]:
-                mismatches += 1
-        return mismatches
+            field_value = field.value
+            caught = (case["bad_field"] in rejected) or (field.value is None)
+        print(f"{case['name']}: status={result.status} field={field_value!r} caught={caught}")
+        if caught != case["should_be_caught"]:
+            mismatches += 1
+    return mismatches
 
-    mismatches = asyncio.run(_run())
+
+def run_live(cases, extractor=None) -> int:
+    import asyncio
+
+    if extractor is None:
+        from app.providers import OpenAIExtractor
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+        extractor = OpenAIExtractor(client)
+
+    mismatches = asyncio.run(run_live_cases(cases, extractor))
     print(f"Live run: {len(cases)} cases, {mismatches} unexpected result(s).")
     return 1 if mismatches else 0
 

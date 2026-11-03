@@ -25,15 +25,16 @@ with open(CASES_PATH) as f:
     INJECTION_CASES = yaml.safe_load(f)["cases"]
 
 
-def _lead_claiming(field_name, value):
+def _lead_claiming(field_name, value, evidence=None):
     lead = Lead.empty()
-    setattr(lead, field_name, EvidencedField(value=value, evidence=value))
+    setattr(lead, field_name, EvidencedField(value=value, evidence=evidence if evidence is not None else value))
     return lead
 
 
 def test_every_case_matches_documented_ground_truth():
     for case in INJECTION_CASES:
-        lead = _lead_claiming(case["bad_field"], case["bad_value"])
+        evidence = case.get("bad_evidence")
+        lead = _lead_claiming(case["bad_field"], case["bad_value"], evidence)
         verified, rejected = verify_lead(lead, case["transcript"])
         field = getattr(verified, case["bad_field"])
         if case["should_be_caught"]:
@@ -47,7 +48,7 @@ def test_every_case_matches_documented_ground_truth():
 def test_every_case_runs_through_the_real_app_with_fake_providers(client):
     for case in INJECTION_CASES:
         transcript = case["transcript"] + " " * max(0, 30 - len(case["transcript"]))  # keep above MIN_WORDS
-        lead = _lead_claiming(case["bad_field"], case["bad_value"])
+        lead = _lead_claiming(case["bad_field"], case["bad_value"], case.get("bad_evidence"))
         transcriber = FakeTranscriber(script=[transcript])
         extractor = FakeExtractor(script=[ExtractionResult(status="ok", lead=lead, usage=Usage(10, 5))])
         app.dependency_overrides[get_transcriber] = lambda t=transcriber: t
