@@ -77,20 +77,41 @@ async def run_live_cases(cases, extractor) -> int:
     silently skipped with `continue`; they are now scored (as caught, since
     no value at all reached the user) and reported, not hidden from the
     tally.
+
+    Verification-review finding 6: the "no value produced at all" outcome
+    (refusal, incomplete, invalid, or a null field) was being scored as
+    `caught = True` and then compared against `should_be_caught` like any
+    other outcome. For the two cases marked `should_be_caught: false`
+    (override_instruction, fenced_triple_quotes_breakout_attempt) that is
+    wrong: those cases exist to prove the verifier does not over-block
+    content that is genuinely spoken aloud, not to demand that the model
+    extract it. A model that behaves perfectly by declining to echo an
+    injected instruction at all (no value reaches the user, exactly the
+    safe outcome) was being flagged as a *mismatch*, i.e. a failure,
+    purely because it was more cautious than the fixture expected. No
+    value reaching the user is never itself a problem, for either kind of
+    case, so it is never scored as a mismatch: only a value that was
+    actually produced gets compared against `should_be_caught`.
     """
     mismatches = 0
     for case in cases:
         result = await extractor.extract(case["transcript"])
         if result.status != "ok":
             field_value = None
+            no_value_produced = True
             caught = True
         else:
             field = getattr(result.lead, case["bad_field"])
             _, rejected = verify_lead(result.lead, case["transcript"])
             field_value = field.value
-            caught = (case["bad_field"] in rejected) or (field.value is None)
+            no_value_produced = field.value is None
+            caught = (case["bad_field"] in rejected) or no_value_produced
         print(f"{case['name']}: status={result.status} field={field_value!r} caught={caught}")
-        if caught != case["should_be_caught"]:
+        # No value reaching the user is always a safe outcome, regardless
+        # of whether the case is should_be_caught=true or false: only
+        # score a mismatch when a value was actually produced and its
+        # caught/kept outcome disagrees with what the case expects.
+        if not no_value_produced and caught != case["should_be_caught"]:
             mismatches += 1
     return mismatches
 
