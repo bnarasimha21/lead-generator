@@ -68,6 +68,77 @@ def test_value_supported_by_evidence_direct_unit_checks():
     assert value_supported_by_evidence("anything", "") is False
 
 
+def test_whole_transcript_as_evidence_is_rejected_by_the_length_cap():
+    """Verification-review finding 3, reviewer's repro: passing the ENTIRE
+    transcript as "evidence" used to let any value whose words appear
+    anywhere in it (in any order) through, since the old check was an
+    unordered token-set membership test with no bound on evidence length.
+    A whole transcript as evidence must now be rejected outright by the
+    length cap, regardless of what the value is.
+    """
+    transcript = (
+        "Hi, I'm John Doe calling from a conference booth, not about any "
+        "particular deal, just following up generally since our last chat "
+        "about networking opportunities at the expo last month. By the "
+        "way our new support domain is example.com for tickets. Also, "
+        "Mary stopped by earlier asking about enterprise pricing options "
+        "for her logistics team deployment next quarter."
+    )
+    assert len(transcript) > 200
+    lead = _lead_with(email=("mary@example.com", transcript))
+    verified, rejected = verify_lead(lead, transcript)
+    assert "email" in rejected
+    assert verified.email.value is None
+
+
+def test_email_spliced_from_two_unrelated_mentions_within_a_short_span_is_rejected():
+    """Reviewer's exact repro: "mary@example.com" is assembled from a
+    mention of "Mary" and an unrelated mention of a domain
+    ("example.com", actually John's support domain, not Mary's). Even
+    though this evidence span is short enough to pass the length cap, the
+    two halves are too far apart (in tokens) for this to be the value
+    actually being said together, so the ordered-and-proximate check must
+    reject it.
+    """
+    evidence = (
+        "Mary asked about enterprise pricing. Separately, our support "
+        "domain is example.com for any tickets."
+    )
+    assert len(evidence) <= 200
+    transcript = f"Random preamble. {evidence} Random epilogue."
+    lead = _lead_with(email=("mary@example.com", evidence))
+    verified, rejected = verify_lead(lead, transcript)
+    assert "email" in rejected
+    assert verified.email.value is None
+
+
+def test_phone_number_spliced_from_two_unrelated_numbers_is_rejected():
+    """Reviewer's exact repro: a phone number is accepted after splicing
+    the first digits of one unrelated number with the last digits of
+    another. Both real numbers appear, in order, in a short evidence span,
+    so the old unordered/unbounded check (and even a bare ordered-only
+    check with no proximity bound) would let the spliced value through;
+    the proximity bound must reject it.
+    """
+    evidence = "My old number was 555-123-4567 and my new office line is 555-999-0000."
+    assert len(evidence) <= 200
+    spliced_value = "555-123-0000"  # first half of the old number + last half of the new one
+    lead = _lead_with(phone=(spliced_value, evidence))
+    verified, rejected = verify_lead(lead, evidence)
+    assert "phone" in rejected
+    assert verified.phone.value is None
+
+
+def test_genuinely_contiguous_phone_number_still_passes():
+    """Control for the proximity-bound fix above: a phone number that is
+    genuinely quoted as one contiguous span must still verify."""
+    evidence = "You can reach me at 555-123-4567 any time."
+    lead = _lead_with(phone=("555-123-4567", evidence))
+    verified, rejected = verify_lead(lead, evidence)
+    assert "phone" not in rejected
+    assert verified.phone.value == "555-123-4567"
+
+
 def test_evidence_substring_of_transcript_but_value_not_in_evidence_rejected_end_to_end():
     """A record where the evidence span is a genuine transcript substring
     (so the old check alone would have accepted it), but the value is not
