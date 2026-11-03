@@ -40,14 +40,19 @@ def _int_env(name: str, default: int) -> int:
 ENV = os.getenv("ENV", "development")
 
 # Provider seam: "openai" talks to the real API, "fake" uses scripted
-# in-memory providers for tests and offline CI. Refuses to start with fake
-# providers in production so a misconfigured deploy cannot silently serve
-# canned data.
+# in-memory providers for tests and offline CI. Fails closed: fake
+# providers are only allowed when ENV is explicitly one of the known-safe
+# values below, not merely "not literally production". Blocking only
+# ENV == "production" would silently allow canned data in any other real
+# deploy where ENV was left unset, mistyped, or set to something like
+# "staging"/"prod" rather than "production" exactly.
 LEAD_PROVIDERS = os.getenv("LEAD_PROVIDERS", "openai")
-if LEAD_PROVIDERS == "fake" and ENV == "production":
+_FAKE_PROVIDER_SAFE_ENVS = {"development", "test"}
+if LEAD_PROVIDERS == "fake" and ENV not in _FAKE_PROVIDER_SAFE_ENVS:
     raise RuntimeError(
-        "LEAD_PROVIDERS=fake is not allowed when ENV=production; "
-        "set LEAD_PROVIDERS=openai or unset ENV."
+        f"LEAD_PROVIDERS=fake is only allowed when ENV is one of "
+        f"{sorted(_FAKE_PROVIDER_SAFE_ENVS)} (got ENV={ENV!r}); "
+        "set LEAD_PROVIDERS=openai for any real deploy."
     )
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
