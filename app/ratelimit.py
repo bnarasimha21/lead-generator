@@ -6,10 +6,26 @@ limitation (won't survive a restart or coordinate across workers).
 
 import time
 from collections import defaultdict, deque
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Deque, Dict, Optional, Tuple
 
 from app import config
+
+
+def _seconds_until_local_midnight(now_dt: Optional[datetime] = None) -> float:
+    """How long until the daily call budget actually resets (local
+    midnight, matching _reset_day_if_needed's use of date.today()).
+
+    The daily-budget-exceeded case used to return a fixed
+    window_seconds (60 by default) as Retry-After, which is nowhere
+    near right: the budget doesn't reset in another minute, it resets
+    at midnight. A client that waited the advertised 60 seconds and
+    retried would just get rejected again, every minute, until actual
+    midnight.
+    """
+    now_dt = now_dt if now_dt is not None else datetime.now()
+    midnight = datetime.combine(now_dt.date() + timedelta(days=1), datetime.min.time())
+    return max((midnight - now_dt).total_seconds(), 1.0)
 
 
 class RateLimiter:
@@ -40,7 +56,7 @@ class RateLimiter:
         now = now if now is not None else time.monotonic()
         self._reset_day_if_needed()
         if self._day_count >= self.daily_budget:
-            return False, float(self.window_seconds)
+            return False, _seconds_until_local_midnight()
 
         hits = self._hits[client_ip]
         while hits and now - hits[0] > self.window_seconds:
@@ -76,7 +92,7 @@ class RateLimiter:
         now = now if now is not None else time.monotonic()
         self._reset_day_if_needed()
         if self._day_count >= self.daily_budget:
-            return False, float(self.window_seconds)
+            return False, _seconds_until_local_midnight()
 
         hits = self._hits[client_ip]
         while hits and now - hits[0] > self.window_seconds:
