@@ -179,6 +179,30 @@ filled in with date, model ids and numbers once one has.
 
 ---
 
+## Reverse proxy trust (X-Forwarded-For)
+
+Rate limiting and the daily call budget are keyed on client IP
+(`app/ratelimit.py`, enforced in `app/request_guard.py`). Behind a reverse
+proxy, such as Railway, every real client's TCP connection terminates at
+the proxy, so uvicorn's own view of the client IP is just the proxy's own
+address, and every user would share one rate-limit bucket.
+
+To fix this, both `Procfile` and the `Dockerfile`'s `CMD` run uvicorn with
+`--proxy-headers --forwarded-allow-ips='*'`, which tells uvicorn to trust
+`X-Forwarded-For` from whoever connects to it, and to use the left-most
+address in that header as `scope["client"]`.
+
+**This assumes the app is only ever reachable through its platform's own
+trusted reverse proxy** (Railway's edge, or an equivalent you control),
+never directly from the public internet. If that assumption stops holding,
+for example if the app is ever exposed on a port the platform's proxy
+doesn't own, `--forwarded-allow-ips='*'` would let any direct client spoof
+its own `X-Forwarded-For` header and dodge the per-IP limit entirely; in
+that case it should be narrowed to the proxy's actual address range instead
+of `*`.
+
+---
+
 ## Environment variables
 
 See `.env.example` for the full list with defaults. The only one you must

@@ -9,7 +9,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import config
 from app.providers import ProviderError, build_extractor, build_transcriber
-from app.ratelimit import limiter
+from app.request_guard import RateLimitAndBodySizeMiddleware
 from app.schema import Lead
 from app.timing import Timing
 from app.uploads import UploadTooLarge, make_temp_dir, read_upload_limited, sniff_audio_format
@@ -19,6 +19,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("lead_generator")
 
 app = FastAPI()
+# Rate limiting / daily budget and the body-size cap are enforced here, at
+# the ASGI layer, before Starlette ever reads the request body (issue 5 /
+# findings 5, 6): see app/request_guard.py for why this has to happen
+# before the route handler, not inside it.
+app.add_middleware(RateLimitAndBodySizeMiddleware)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
@@ -74,15 +79,10 @@ async def upload_audio(
     timing = Timing()
     timing.mark("received")
 
-    client_ip = request.client.host if request.client else "unknown"
-    allowed, retry_after = limiter.check(client_ip)
-    if not allowed:
-        return JSONResponse(
-            status_code=429,
-            content={"error": "Rate limit exceeded. Please try again shortly."},
-            headers={"Retry-After": str(int(retry_after))},
-        )
-
+    # Rate limiting, the daily budget, and the raw body-size cap are all
+    # already enforced by RateLimitAndBodySizeMiddleware before this
+    # handler ever runs (findings 5, 6): by the time we get here, this
+    # request's slot is already reserved.
     try:
         audio_bytes = await read_upload_limited(file)
     except UploadTooLarge:
@@ -94,7 +94,6 @@ async def upload_audio(
         logger.info(json.dumps({"event": "upload_rejected", "reason": "unrecognised_format", "bytes": len(audio_bytes)}))
         return _error_response(400)
 
-    limiter.record(client_ip)
     timing.mark("audio_validated")
 
     temp_dir = make_temp_dir()
