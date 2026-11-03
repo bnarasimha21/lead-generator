@@ -79,6 +79,17 @@ def test_slow_provider_does_not_block_health_endpoint(sample_wav_bytes):
     """Proves the handler awaits the provider instead of blocking the
     event loop: while one request is parked on a slow fake provider, a
     concurrent /health request still returns promptly.
+
+    Scope, honestly stated (finding 11): FakeTranscriber's delay is an
+    `await asyncio.sleep(...)`, which always yields control back to the
+    loop regardless of what main.py does around it. This test therefore
+    only proves the handler really does `await` the provider call rather
+    than, say, forgetting the `await` entirely (which would skip the
+    sleep, not block on it). (A separate, previously-unnecessary
+    synchronous temp-file write that used to sit on this same request
+    path has since been removed entirely, see app/uploads.py; nothing in
+    this handler ever touches disk now, so there is nothing else to
+    check here.)
     """
     slow_transcriber = FakeTranscriber(delay_seconds=1.0)
     extractor = FakeExtractor()

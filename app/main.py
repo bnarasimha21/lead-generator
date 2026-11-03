@@ -12,7 +12,7 @@ from app.providers import ProviderError, build_extractor, build_transcriber
 from app.request_guard import RateLimitAndBodySizeMiddleware
 from app.schema import Lead
 from app.timing import Timing
-from app.uploads import UploadTooLarge, make_temp_dir, read_upload_limited, sniff_audio_format
+from app.uploads import UploadTooLarge, read_upload_limited, sniff_audio_format
 from app.verify import verify_lead
 
 logging.basicConfig(level=logging.INFO)
@@ -96,70 +96,62 @@ async def upload_audio(
 
     timing.mark("audio_validated")
 
-    temp_dir = make_temp_dir()
     try:
-        temp_path = os.path.join(temp_dir.name, f"upload.{sniffed.extension}")
-        with open(temp_path, "wb") as f:
-            f.write(audio_bytes)
+        transcription = await transcriber.transcribe(audio_bytes, f"upload.{sniffed.extension}", sniffed.content_type)
+    except ProviderError:
+        logger.info(json.dumps({"event": "transcription_failed", "bytes": len(audio_bytes)}))
+        return _error_response(502)
+    timing.mark("transcribed")
 
+    transcript = transcription.text or ""
+    word_count = len(transcript.split())
+
+    usage = {"audio_seconds": transcription.audio_seconds, "input_tokens": 0, "output_tokens": 0}
+    message = None
+    rejected = []
+
+    if word_count < config.MIN_WORDS_FOR_EXTRACTION:
+        lead = Lead.empty()
+        message = "Transcript too short to extract a lead."
+        timing.mark("extracted")
+        timing.mark("verified")
+    else:
         try:
-            transcription = await transcriber.transcribe(audio_bytes, f"upload.{sniffed.extension}", sniffed.content_type)
+            extraction = await extractor.extract(transcript)
         except ProviderError:
-            logger.info(json.dumps({"event": "transcription_failed", "bytes": len(audio_bytes)}))
+            logger.info(json.dumps({"event": "extraction_failed", "words": word_count}))
             return _error_response(502)
-        timing.mark("transcribed")
+        timing.mark("extracted")
 
-        transcript = transcription.text or ""
-        word_count = len(transcript.split())
+        usage["input_tokens"] = extraction.usage.input_tokens
+        usage["output_tokens"] = extraction.usage.output_tokens
 
-        usage = {"audio_seconds": transcription.audio_seconds, "input_tokens": 0, "output_tokens": 0}
-        message = None
-        rejected = []
-
-        if word_count < config.MIN_WORDS_FOR_EXTRACTION:
-            lead = Lead.empty()
-            message = "Transcript too short to extract a lead."
-            timing.mark("extracted")
-            timing.mark("verified")
+        if extraction.status == "ok":
+            lead, rejected = verify_lead(extraction.lead, transcript)
         else:
-            try:
-                extraction = await extractor.extract(transcript)
-            except ProviderError:
-                logger.info(json.dumps({"event": "extraction_failed", "words": word_count}))
-                return _error_response(502)
-            timing.mark("extracted")
+            lead = Lead.empty()
+            message = extraction.message
+        timing.mark("verified")
 
-            usage["input_tokens"] = extraction.usage.input_tokens
-            usage["output_tokens"] = extraction.usage.output_tokens
+    estimated_cost = _estimate_cost(usage)
+    timing.mark("responded")
 
-            if extraction.status == "ok":
-                lead, rejected = verify_lead(extraction.lead, transcript)
-            else:
-                lead = Lead.empty()
-                message = extraction.message
-            timing.mark("verified")
-
-        estimated_cost = _estimate_cost(usage)
-        timing.mark("responded")
-
-        body = {
-            "transcript": transcript,
-            "lead": lead.to_display_dict(rejected),
-            "rejected": rejected,
-            "message": message,
-            "timing": timing.as_dict(),
-            "usage": {**usage, "estimated_cost": estimated_cost},
-        }
-        logger.info(json.dumps({
-            "event": "upload_complete",
-            "bytes": len(audio_bytes),
-            "words": word_count,
-            "rejected_count": len(rejected),
-            "timing_ms": timing.as_dict(),
-        }))
-        return JSONResponse(content=body, headers={"Server-Timing": timing.server_timing_header()})
-    finally:
-        temp_dir.cleanup()
+    body = {
+        "transcript": transcript,
+        "lead": lead.to_display_dict(rejected),
+        "rejected": rejected,
+        "message": message,
+        "timing": timing.as_dict(),
+        "usage": {**usage, "estimated_cost": estimated_cost},
+    }
+    logger.info(json.dumps({
+        "event": "upload_complete",
+        "bytes": len(audio_bytes),
+        "words": word_count,
+        "rejected_count": len(rejected),
+        "timing_ms": timing.as_dict(),
+    }))
+    return JSONResponse(content=body, headers={"Server-Timing": timing.server_timing_header()})
 
 
 def _estimate_cost(usage: dict):

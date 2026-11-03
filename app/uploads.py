@@ -1,11 +1,11 @@
 """Upload handling (issue 1): sniff the real container from the first
-bytes instead of trusting the filename/extension, read in chunks with a
-hard size limit so an oversized upload is rejected before it is fully
-buffered in memory, and always write to a TemporaryDirectory that is
-cleaned up in a `finally`, never the app directory.
+bytes instead of trusting the filename/extension, and read in chunks
+with a hard size limit so an oversized upload is rejected before it is
+fully buffered in memory. The upload is kept in memory only; nothing is
+ever written to disk, so there is no temp file to clean up and nothing
+can be left behind in the app directory.
 """
 
-import tempfile
 from dataclasses import dataclass
 from typing import Optional
 
@@ -66,7 +66,3 @@ async def read_upload_limited(file: UploadFile, max_bytes: int = None, chunk_siz
             raise UploadTooLarge(f"upload exceeds {max_bytes} bytes")
         chunks.append(chunk)
     return b"".join(chunks)
-
-
-def make_temp_dir():
-    return tempfile.TemporaryDirectory(prefix="lead-generator-upload-")
