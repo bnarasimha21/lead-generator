@@ -10,6 +10,15 @@ content-filtered or schema-invalid reply has a defined, non-502 outcome
 elsewhere in this same method (incomplete / refusal / invalid), and
 should reach it the same way whether the SDK raises or returns.
 
+Verification-review blocker: the pinned openai==1.57.4 only exposes the
+structured-output .parse() helper at client.beta.chat.completions.parse,
+not client.chat.completions.parse (checked against the installed SDK's
+actual attributes). The fake client below mirrors exactly that shape: it
+exposes beta.chat.completions.parse and deliberately has no top-level
+`chat` attribute at all, so a regression back to the wrong call site
+raises AttributeError (caught by the generic except and turned into a
+ProviderError) instead of silently passing.
+
 These tests mock the OpenAI client directly; no real API call is made.
 """
 
@@ -26,13 +35,15 @@ TRANSCRIPT = "Hi, I'm Priya from Acme Corp, interested in GPU pricing."
 
 
 class _RaisingClient:
-    """A fake OpenAI client whose chat.completions.parse() raises
+    """A fake OpenAI client whose beta.chat.completions.parse() raises
     whatever exception it is constructed with, instead of making a real
-    network call."""
+    network call. Matches the real openai==1.57.4 client's actual shape:
+    there is intentionally no top-level `chat` attribute, only `beta.chat`,
+    so a call site using the wrong (non-beta) path fails loudly here too."""
 
     def __init__(self, exc: Exception):
         self._exc = exc
-        self.chat = SimpleNamespace(completions=SimpleNamespace(parse=self._parse))
+        self.beta = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(parse=self._parse)))
 
     async def _parse(self, **kwargs):
         raise self._exc
@@ -101,3 +112,57 @@ def test_an_unrelated_sdk_failure_still_raises_provider_error():
 
     with pytest.raises(ProviderError):
         asyncio.run(extractor.extract(TRANSCRIPT))
+
+
+class _SucceedingClient:
+    """A fake OpenAI client whose beta.chat.completions.parse() returns a
+    successful completion, matching the real openai==1.57.4 shape: only
+    beta.chat.completions.parse exists, there is no top-level `chat`."""
+
+    def __init__(self, completion):
+        self._completion = completion
+        self.beta = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(parse=self._parse)))
+
+    async def _parse(self, **kwargs):
+        return self._completion
+
+
+def test_extract_calls_beta_chat_completions_parse_not_the_non_beta_path():
+    """Verification-review blocker: the pinned SDK (1.57.4) only exposes
+    the structured-output .parse() helper under `beta`, not directly on
+    `chat.completions`. Calling the non-beta path raises AttributeError on
+    every real call. This test pins the call site itself (not just the
+    outcome), so a regression back to self._client.chat.completions.parse
+    fails here even though the fake client has no top-level `chat` at all
+    to attribute-error against."""
+    from app.schema import EvidencedField, Lead
+
+    lead = Lead(
+        name=EvidencedField(value="Priya", evidence="I'm Priya"),
+    )
+    message = SimpleNamespace(parsed=lead, refusal=None, content=lead.model_dump_json())
+    choice = SimpleNamespace(message=message, finish_reason="stop")
+    usage = SimpleNamespace(prompt_tokens=20, completion_tokens=8)
+    completion = SimpleNamespace(choices=[choice], usage=usage)
+
+    client = _SucceedingClient(completion)
+    extractor = OpenAIExtractor(client, model="gpt-6-luna")
+
+    result = asyncio.run(extractor.extract(TRANSCRIPT))
+
+    assert result.status == "ok"
+    assert result.lead.name.value == "Priya"
+    assert result.usage.input_tokens == 20
+    assert result.usage.output_tokens == 8
+
+
+def test_old_call_site_shape_would_have_raised_attribute_error():
+    """Documents the exact bug from the verification review: a client
+    shaped like the real SDK (only beta.chat.completions.parse exists) has
+    no top-level chat.completions.parse, so the old call site would have
+    raised AttributeError, caught by the broad except and turned into a
+    generic ProviderError/502 on every real, non-mocked extraction call."""
+    client = _SucceedingClient(completion=None)
+
+    with pytest.raises(AttributeError):
+        client.chat.completions.parse  # noqa: B018 - intentional attribute probe

@@ -87,7 +87,13 @@ class OpenAIExtractor:
     async def extract(self, transcript: str) -> ExtractionResult:
         user_message = build_user_message(transcript)
         try:
-            completion = await self._client.chat.completions.parse(
+            # With the pinned openai==1.57.4, structured-output .parse() only
+            # exists at client.beta.chat.completions.parse, not
+            # client.chat.completions.parse (verified against the installed
+            # SDK's actual attributes, not assumed). Calling the non-beta
+            # path raises AttributeError on every real call, which the broad
+            # except below used to swallow into a generic ProviderError/502.
+            completion = await self._client.beta.chat.completions.parse(
                 model=self._model,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
