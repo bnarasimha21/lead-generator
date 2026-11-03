@@ -2,8 +2,12 @@
 implementations behind the async client (so a slow call never blocks the
 event loop), and a factory picking providers from config.
 
-Fakes used by tests live in tests/fakes.py; they implement the same
-protocols so tests exercise the real app code path end to end.
+Fake implementations (used by LEAD_PROVIDERS=fake, and by tests) live in
+app/providers_fake.py, not tests/: the Docker image only COPYs app/, and
+LEAD_PROVIDERS=fake is a legitimate runtime mode outside tests (see the
+container smoke test), so this module must never import from the test tree.
+tests/fakes.py re-exports from app/providers_fake.py for backward
+compatibility with existing test imports.
 """
 
 import logging
@@ -121,7 +125,7 @@ class OpenAIExtractor:
 
 def build_transcriber() -> Transcriber:
     if config.LEAD_PROVIDERS == "fake":
-        from tests.fakes import FakeTranscriber
+        from app.providers_fake import FakeTranscriber
 
         return FakeTranscriber()
     from openai import AsyncOpenAI
@@ -132,7 +136,7 @@ def build_transcriber() -> Transcriber:
 
 def build_extractor() -> Extractor:
     if config.LEAD_PROVIDERS == "fake":
-        from tests.fakes import FakeExtractor
+        from app.providers_fake import FakeExtractor
 
         return FakeExtractor()
     from openai import AsyncOpenAI
