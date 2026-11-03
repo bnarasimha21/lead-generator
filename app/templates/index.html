@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Lead Generator - Audio Requirement</title>
+    <title>Lead Generator - Voice Note to Lead</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
@@ -93,6 +93,17 @@
             font-weight: 600;
             font-size: 1.1rem;
         }
+        .rejected-field {
+            color: #b91c1c;
+        }
+        .evidence-quote {
+            color: #64748b;
+            display: block;
+            font-size: 0.85rem;
+        }
+        .error-section {
+            color: #b91c1c;
+        }
         @media (max-width: 600px) {
             .container {
                 padding: 1.2rem 0.5rem 1.5rem 0.5rem;
@@ -102,36 +113,15 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎤 AMD GPU Droplet Demo</h1>
-        <p style="color:#334155; margin-bottom:1.5rem;">Record your requirement and let AI extract the details for you.</p>
+        <h1>🎤 Lead Generator</h1>
+        <p style="color:#334155; margin-bottom:1.5rem;">Record a short voice note after a meeting and get a structured lead: name, company, role, contact, interest and next step. Nothing is stored server side; this is a single-speaker voice note tool, not a meeting transcriber.</p>
         <div class="example-box">
             <b>Example:</b><br>
-            <i>"Hi, I am John from XYZ company, I am trying to use GPUs for my AI/ML workloads. Can you help me?"</i>
+            <i>"Hi, I am John from XYZ company, I am interested in GPU instances for an AI workload. My email is john at xyz dot com, let's follow up next week."</i>
         </div>
         <button id="recordBtn">Start Recording</button>
         <button id="stopBtn" disabled>Stop Recording</button>
         <audio id="audioPlayback" controls style="display:none;"></audio>
-        <form id="uploadForm" method="post" enctype="multipart/form-data" action="/upload-audio">
-            <input type="file" id="audioFile" name="file" style="display:none;" />
-            <button type="submit" id="uploadBtn" disabled>Upload</button>
-        </form>
-        {% if transcript %}
-        <div class="result-section">
-            <h2>Transcription</h2>
-            <p>{{ transcript }}</p>
-        </div>
-        {% endif %}
-        {% if extracted %}
-        <div class="result-section">
-            <h2>Extracted Information</h2>
-            <ul>
-                <li><b>User:</b> {{ extracted.user }}</li>
-                <li><b>Company:</b> {{ extracted.company }}</li>
-                <li><b>Query/Requirement:</b> {{ extracted.query }}</li>
-                <li><b>Action:</b> {{ extracted.action }}</li>
-            </ul>
-        </div>
-        {% endif %}
     </div>
     <script src="/static/recorder.js"></script>
 </body>
